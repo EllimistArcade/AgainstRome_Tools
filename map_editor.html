@@ -1,0 +1,1610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>objdata.dat — record table viewer</title>
+<style>
+  :root{
+    --bg:        #0c0f0a;
+    --bg-panel:  #11150f;
+    --line:      #25301f;
+    --text:      #c9d6bf;
+    --text-dim:  #6e7d63;
+    --accent:    #9bff5e;
+    --accent-dim:#4f7a33;
+    --warn:      #ffb454;
+    --mono: "JetBrains Mono", "IBM Plex Mono", "SF Mono", Consolas, monospace;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; height:100%; }
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--mono);
+    font-size:13px;
+    display:flex; flex-direction:column;
+    min-height:100vh;
+  }
+
+  .pipe{ color:var(--line); }
+
+  .layout{ display:flex; flex:1; min-height:0; }
+
+  /* ---- side panel ---- */
+  aside{
+    width:300px; flex:none;
+    border-right:1px solid var(--line);
+    padding:18px; display:flex; flex-direction:column; gap:18px;
+    overflow-y:auto;
+  }
+  .field{ display:flex; flex-direction:column; gap:6px; }
+  .field label{ font-size:11px; letter-spacing:.08em; color:var(--text-dim); text-transform:uppercase; }
+  input[type=number], input[type=text]{
+    background:var(--bg-panel); border:1px solid var(--line); color:var(--text);
+    font-family:var(--mono); font-size:13px; padding:6px 8px; border-radius:3px;
+    width:100%;
+  }
+  input[type=number]:focus, input[type=text]:focus, select:focus{
+    outline:none; border-color:var(--accent-dim);
+  }
+  .row2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .row3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
+
+  .filepick{
+    border:1px dashed var(--line); border-radius:4px; padding:16px;
+    text-align:center; color:var(--text-dim); cursor:pointer;
+    transition:border-color .15s, color .15s;
+  }
+  .filepick:hover{ border-color:var(--accent-dim); color:var(--text); }
+  .filepick.loaded{ border-style:solid; border-color:var(--accent-dim); color:var(--accent); }
+  .filepick input{ display:none; }
+
+  /* field layout builder */
+  #fieldsList{ display:flex; flex-direction:column; gap:8px; }
+  .fieldrow{
+    display:grid; grid-template-columns:1fr 90px 24px; gap:6px; align-items:center;
+  }
+  select{
+    background:var(--bg-panel); border:1px solid var(--line); color:var(--text);
+    font-family:var(--mono); font-size:12px; padding:6px 4px; border-radius:3px;
+  }
+  .rm-btn{
+    background:none; border:1px solid var(--line); color:var(--text-dim);
+    width:24px; height:28px; border-radius:3px; cursor:pointer; font-size:13px;
+    line-height:1;
+  }
+  .rm-btn:hover{ border-color:#c0524f; color:#ff8b85; }
+
+  button.add{
+    background:none; border:1px solid var(--accent-dim); color:var(--accent);
+    font-family:var(--mono); font-size:12px; padding:7px 10px; border-radius:3px;
+    cursor:pointer; letter-spacing:.05em; text-transform:uppercase;
+  }
+  button.add:hover{ background:rgba(155,255,94,.08); }
+
+  .presets{ display:flex; flex-direction:column; gap:6px; }
+  .preset-btn{
+    background:var(--bg-panel); border:1px solid var(--line); color:var(--text);
+    font-family:var(--mono); font-size:11.5px; padding:8px 10px; border-radius:3px;
+    text-align:left; cursor:pointer;
+  }
+  .preset-btn:hover{ border-color:var(--accent-dim); }
+  .preset-btn .name{ color:var(--accent); display:block; margin-bottom:2px; }
+  .preset-btn .desc{ color:var(--text-dim); font-size:11px; }
+
+  .stat{
+    background:var(--bg-panel); border:1px solid var(--line); border-radius:3px;
+    padding:8px 10px; font-size:11.5px; color:var(--text-dim);
+    display:flex; justify-content:space-between;
+  }
+  .stat b{ color:var(--text); font-weight:600; }
+
+  /* ---- main / table ---- */
+  main{ flex:1; display:flex; flex-direction:column; min-width:0; }
+  .toolbar{
+    display:flex; align-items:center; gap:14px; padding:10px 18px;
+    border-bottom:1px solid var(--line); flex-wrap:wrap;
+  }
+  .toolbar .grow{ flex:1; }
+  .toolbar input[type=text]{ width:200px; }
+  .navbtn{
+    background:var(--bg-panel); border:1px solid var(--line); color:var(--text);
+    font-family:var(--mono); font-size:12px; padding:6px 10px; border-radius:3px;
+    cursor:pointer;
+  }
+  .navbtn:hover{ border-color:var(--accent-dim); }
+  .navbtn:disabled{ opacity:.35; cursor:default; }
+
+  .tablewrap{ flex:1; overflow:auto; }
+  table{ border-collapse:collapse; width:100%; font-size:12.5px; }
+  thead th{
+    position:sticky; top:0; background:var(--bg-panel);
+    border-bottom:1px solid var(--line); text-align:right;
+    padding:8px 12px; color:var(--accent); font-weight:600;
+    letter-spacing:.04em; white-space:nowrap;
+    cursor:pointer; user-select:none;
+  }
+  thead th:first-child, td:first-child{ text-align:left; }
+  thead th:hover{ color:#fff; }
+  thead th .arrow{ color:var(--text-dim); margin-left:4px; font-size:10px; }
+  tbody td{
+    padding:5px 12px; text-align:right; white-space:nowrap;
+    border-bottom:1px solid #181f13;
+  }
+  tbody tr:nth-child(even){ background:rgba(255,255,255,.012); }
+  tbody tr:hover{ background:rgba(155,255,94,.05); }
+  td.offset{ color:var(--text-dim); }
+  td.highlight{ color:var(--warn); }
+  td.zero{ color:#3c4636; }
+  td.strcell{ text-align:left; color:#dcd2b8; }
+
+  /* editable value cells */
+  td.editable{ cursor:pointer; }
+  td.editable:hover{ background:rgba(255,180,84,.08); outline:1px solid var(--accent-dim); outline-offset:-1px; }
+  td.edited{ color:var(--warn); font-weight:600; }
+  td.edited::after{ content:'*'; color:var(--warn); margin-left:2px; }
+  .value-input{
+    background:var(--bg-panel); border:1px solid var(--warn); color:var(--warn);
+    font-family:var(--mono); font-size:12.5px; padding:2px 5px; border-radius:3px;
+    width:100%; text-align:right;
+  }
+  .value-input:focus{ outline:none; }
+  .edit-entry .lval{ color:var(--warn); }
+  .edit-entry .lold{ color:var(--text-dim); text-decoration:line-through; margin-right:4px; }
+
+  /* labels */
+  td.label{ text-align:left; color:var(--accent); font-style:italic; }
+  td.label.empty-label{ color:var(--line); font-style:normal; }
+  tr.labeled{ background:rgba(155,255,94,.045); }
+  tr.labeled:hover{ background:rgba(155,255,94,.09); }
+  .label-input{
+    background:var(--bg-panel); border:1px solid var(--accent-dim); color:var(--accent);
+    font-family:var(--mono); font-style:italic; font-size:12.5px;
+    padding:3px 6px; border-radius:3px; width:100%;
+  }
+  .label-input:focus{ outline:none; border-color:var(--accent); }
+  .label-clear{
+    background:none; border:none; color:var(--text-dim); cursor:pointer;
+    font-size:13px; padding:0 4px; line-height:1;
+  }
+  .label-clear:hover{ color:#ff8b85; }
+
+  .labels-panel{ display:flex; flex-direction:column; gap:6px; max-height:220px; overflow-y:auto; }
+  .label-entry{
+    display:flex; justify-content:space-between; gap:8px; align-items:baseline;
+    background:var(--bg-panel); border:1px solid var(--line); border-radius:3px;
+    padding:6px 8px; font-size:11.5px; cursor:pointer;
+  }
+  .label-entry:hover{ border-color:var(--accent-dim); }
+  .label-entry .loff{ color:var(--text-dim); }
+  .label-entry .ltext{ color:var(--accent); font-style:italic; text-align:right; overflow:hidden; text-overflow:ellipsis; }
+  .label-actions{ display:flex; gap:8px; }
+  .label-actions button{
+    flex:1; background:var(--bg-panel); border:1px solid var(--line); color:var(--text);
+    font-family:var(--mono); font-size:11px; padding:6px 8px; border-radius:3px; cursor:pointer;
+  }
+  .label-actions button:hover{ border-color:var(--accent-dim); }
+  .labels-empty{ color:var(--text-dim); font-size:11.5px; padding:4px 0; }
+
+  .empty{
+    flex:1; display:flex; align-items:center; justify-content:center;
+    color:var(--text-dim); flex-direction:column; gap:10px; text-align:center;
+    padding:40px;
+  }
+  .empty .big{ font-size:28px; color:var(--line); letter-spacing:.3em; }
+
+  footer{
+    border-top:1px solid var(--line); padding:8px 18px;
+    color:var(--text-dim); font-size:11px; display:flex; justify-content:space-between;
+  }
+
+  ::-webkit-scrollbar{ width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb{ background:var(--line); border-radius:5px; }
+  ::-webkit-scrollbar-track{ background:var(--bg); }
+
+  /* ---- tabs / app shell ---- */
+  .tabbar{
+    display:flex; align-items:center; gap:4px; padding:0 22px;
+    border-bottom:1px solid var(--line); background:var(--bg);
+  }
+  .tabbar h1{
+    font-size:14px; letter-spacing:.12em; text-transform:uppercase;
+    margin:0; color:var(--accent); font-weight:600; padding:16px 18px 16px 0;
+    border-right:1px solid var(--line); margin-right:6px;
+  }
+  .tabbtn{
+    background:none; border:none; color:var(--text-dim);
+    font-family:var(--mono); font-size:12.5px; letter-spacing:.06em; text-transform:uppercase;
+    padding:16px 16px; cursor:pointer; border-bottom:2px solid transparent;
+  }
+  .tabbtn:hover{ color:var(--text); }
+  .tabbtn.active{ color:var(--accent); border-bottom-color:var(--accent); }
+  .tabpanel{ display:none; flex:1; min-height:0; flex-direction:column; }
+  .tabpanel.active{ display:flex; }
+
+  /* ---- home / landing ---- */
+  .home{
+    flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:36px; padding:40px;
+  }
+  .home .tagline{ color:var(--text-dim); text-align:center; max-width:520px; line-height:1.6; }
+  .home .tagline .big{ display:block; font-size:28px; color:var(--line); letter-spacing:.3em; margin-bottom:18px; }
+  .home-cards{ display:flex; gap:24px; flex-wrap:wrap; justify-content:center; }
+  .home-card{
+    background:var(--bg-panel); border:1px solid var(--line); border-radius:6px;
+    padding:28px 32px; width:260px; text-align:left; cursor:pointer;
+    transition:border-color .15s, transform .1s;
+  }
+  .home-card:hover{ border-color:var(--accent-dim); transform:translateY(-2px); }
+  .home-card .icon{ font-size:22px; color:var(--accent); margin-bottom:10px; letter-spacing:.2em; }
+  .home-card h2{ font-size:14px; letter-spacing:.08em; text-transform:uppercase; margin:0 0 8px; color:var(--text); }
+  .home-card p{ font-size:12px; color:var(--text-dim); line-height:1.5; margin:0; }
+
+  /* ---- briefing editor ---- */
+  .briefing-layout{ display:flex; flex:1; min-height:0; }
+  .briefing-main{ flex:1; overflow-y:auto; padding:20px 28px; display:flex; flex-direction:column; gap:22px; }
+  .briefing-file-block{ border:1px solid var(--line); border-radius:6px; padding:16px 18px; }
+  .briefing-file-block h2{
+    font-size:13px; letter-spacing:.1em; text-transform:uppercase; color:var(--accent);
+    margin:0 0 12px; display:flex; align-items:center; justify-content:space-between; gap:10px;
+  }
+  .briefing-file-block h2 .fname{ color:var(--text-dim); font-size:11px; letter-spacing:0; text-transform:none; font-weight:400; }
+  .varblock{ border-top:1px solid #181f13; padding:12px 0; }
+  .varblock:first-of-type{ border-top:none; padding-top:0; }
+  .varblock .vname{
+    font-size:12px; color:var(--accent); letter-spacing:.04em; margin-bottom:6px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .varblock .vname .vmeta{ color:var(--text-dim); font-size:10.5px; text-transform:none; letter-spacing:0; }
+  .varblock textarea{
+    width:100%; background:var(--bg-panel); border:1px solid var(--line); color:var(--text);
+    font-family:var(--mono); font-size:12.5px; line-height:1.5; padding:8px 10px; border-radius:4px;
+    resize:vertical; min-height:38px;
+  }
+  .varblock textarea:focus{ outline:none; border-color:var(--accent-dim); }
+  .varblock textarea.edited{ border-color:var(--warn); }
+  .comment-line{ color:var(--text-dim); font-size:11px; padding:2px 0; font-style:italic; }
+  .briefing-empty{
+    flex:1; display:flex; align-items:center; justify-content:center; color:var(--text-dim);
+    flex-direction:column; gap:10px; text-align:center; padding:40px;
+  }
+</style>
+</head>
+<body>
+
+<div class="tabbar">
+  <h1>Against Rome Map Editor</h1>
+  <button class="tabbtn active" data-tab="home">Home</button>
+  <button class="tabbtn" data-tab="briefing">Edit Briefing</button>
+  <button class="tabbtn" data-tab="objects">Edit Objects</button>
+</div>
+
+<div id="tab-home" class="tabpanel active">
+  <div class="home">
+    <div class="tagline">
+      <span class="big">::: :: : .. .</span>
+      Tools for editing "Against Rome" (2003) MAPS folder files —
+      decode, edit, and recompress PFIL/LZSS-wrapped scenario data.
+    </div>
+    <div class="home-cards">
+      <div class="home-card" data-goto="briefing">
+        <div class="icon">[ A ]</div>
+        <h2>Edit Briefing</h2>
+        <p>Load <code>briefing.put</code> and <code>text.put</code> — edit mission
+        briefing, debriefing, team names, and in-scenario objective/dialogue
+        text as a simple form. Export recompressed <code>.put</code> files.</p>
+      </div>
+      <div class="home-card" data-goto="objects">
+        <div class="icon">[ # ]</div>
+        <h2>Edit Objects</h2>
+        <p>Load <code>objects.dat</code> and <code>objdata.dat</code> — browse
+        record tables, label offsets, edit raw values (stats, placements,
+        IDs), and export a recompressed <code>.dat</code>.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="tab-briefing" class="tabpanel">
+  <div class="briefing-layout">
+    <aside>
+      <div class="field">
+        <label>briefing.put</label>
+        <label class="filepick" id="briefingFilepick">
+          <input type="file" id="briefingFileInput" accept=".put,.dat,.bin,*">
+          <span id="briefingFilepickText">Drop or click to load briefing.put (compressed)</span>
+        </label>
+      </div>
+      <div class="field">
+        <label>text.put</label>
+        <label class="filepick" id="textFilepick">
+          <input type="file" id="textFileInput" accept=".put,.dat,.bin,*">
+          <span id="textFilepickText">Drop or click to load text.put (compressed)</span>
+        </label>
+      </div>
+      <div class="field">
+        <label>Edits <span id="briefingEditCount" style="color:var(--text-dim); text-transform:none; letter-spacing:0;"></span></label>
+        <div class="label-actions">
+          <button id="revertBriefingEdits">Revert all</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>Export</label>
+        <div class="label-actions">
+          <button id="exportBriefingPut">briefing.put</button>
+          <button id="exportTextPut">text.put</button>
+        </div>
+      </div>
+    </aside>
+    <div class="briefing-main" id="briefingMain">
+      <div class="briefing-empty">
+        <div class="big">::: :: : .. .</div>
+        <div>Load briefing.put and/or text.put to edit their<br><code>var:name="...";</code> entries as a form.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="tab-objects" class="tabpanel">
+<div class="layout">
+  <aside>
+
+    <div class="field">
+      <label>Active file</label>
+      <select id="activeSlot">
+        <option value="objects">objects.dat</option>
+        <option value="objdata">objdata.dat</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>objects.dat <span style="color:var(--text-dim); text-transform:none; letter-spacing:0;">(compressed, as shipped)</span></label>
+      <label class="filepick" id="filepick-objects">
+        <input type="file" id="fileInput-objects" accept=".dat,.bin,*">
+        <span id="filepickText-objects">Drop or click to load objects.dat</span>
+      </label>
+    </div>
+
+    <div class="field">
+      <label>objdata.dat <span style="color:var(--text-dim); text-transform:none; letter-spacing:0;">(compressed, as shipped)</span></label>
+      <label class="filepick" id="filepick-objdata">
+        <input type="file" id="fileInput-objdata" accept=".dat,.bin,*">
+        <span id="filepickText-objdata">Drop or click to load objdata.dat</span>
+      </label>
+    </div>
+
+    <div class="field">
+      <label>Presets</label>
+      <div class="presets" id="presets"></div>
+    </div>
+
+    <div class="field">
+      <label>Table layout</label>
+      <div class="row2">
+        <div class="field">
+          <label>Start offset</label>
+          <input type="number" id="startOffset" value="13" min="0">
+        </div>
+        <div class="field">
+          <label>Record size (bytes)</label>
+          <input type="number" id="recordSize" value="9" min="1">
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label>Record count (0 = auto)</label>
+          <input type="number" id="recordCount" value="0" min="0">
+        </div>
+        <div class="field">
+          <label>Index column</label>
+          <select id="showIndex">
+            <option value="1">Record #</option>
+            <option value="0">Hidden</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Fields within a record</label>
+      <div id="fieldsList"></div>
+      <button class="add" id="addField">+ Add field</button>
+    </div>
+
+    <div class="field" id="statsBox" style="display:none">
+      <label>File info</label>
+      <div class="stat"><span>size</span><b id="statSize">—</b></div>
+      <div class="stat"><span>records (auto)</span><b id="statRecords">—</b></div>
+      <div class="stat"><span>bytes covered</span><b id="statCoverage">—</b></div>
+    </div>
+
+    <div class="field">
+      <label>Labels <span id="labelCount" style="color:var(--text-dim); text-transform:none; letter-spacing:0;"></span></label>
+      <div class="labels-panel" id="labelsPanel">
+        <div class="labels-empty">Click the label cell on any row to name that offset.</div>
+      </div>
+      <div class="label-actions">
+        <button id="exportLabels">Export JSON</button>
+        <label class="navbtn" style="text-align:center; cursor:pointer;">
+          Import JSON
+          <input type="file" id="importLabelsInput" accept=".json" style="display:none">
+        </label>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Edits <span id="editCount" style="color:var(--text-dim); text-transform:none; letter-spacing:0;"></span></label>
+      <div class="labels-panel" id="editsPanel">
+        <div class="labels-empty">Click a value cell (not name/id strings) to edit it in place.</div>
+      </div>
+      <div class="label-actions">
+        <button id="revertAllEdits">Revert all</button>
+        <button id="exportDat">Export .dat</button>
+      </div>
+    </div>
+
+  </aside>
+
+  <main>
+    <div class="toolbar">
+      <input type="text" id="search" placeholder="filter rows (e.g. exact value, substring)">
+      <span class="grow"></span>
+      <button class="navbtn" id="prevPage">&larr; prev</button>
+      <span id="pageInfo" style="color:var(--text-dim)">—</span>
+      <button class="navbtn" id="nextPage">next &rarr;</button>
+    </div>
+    <div class="tablewrap" id="tableWrap">
+      <div class="empty">
+        <div class="big">::: :: : .. .</div>
+        <div>Load a decoded file, pick a preset or define a record<br>layout, and the parsed table will appear here.</div>
+      </div>
+    </div>
+    <footer>
+      <span id="footerLeft">No file loaded</span>
+      <span id="footerRight">stride 9 &middot; [f32, u8, f32] &middot; from objdata-decoded.dat session</span>
+    </footer>
+  </main>
+</div>
+</div>
+
+<script>
+// ---------- tab switching ----------
+function showTab(name){
+  document.querySelectorAll('.tabpanel').forEach(p => p.classList.toggle('active', p.id === 'tab-'+name));
+  document.querySelectorAll('.tabbtn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+}
+document.querySelectorAll('.tabbtn[data-tab]').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
+document.querySelectorAll('.home-card[data-goto]').forEach(c => c.addEventListener('click', () => showTab(c.dataset.goto)));
+
+// ---------- shared PFIL/LZSS codec ----------
+const LZSS_N = 4096, LZSS_F = 18, LZSS_THRESHOLD = 2;
+
+function lzssDecompress(src, expectedSize){
+  const textBuf = new Uint8Array(LZSS_N+LZSS_F-1).fill(0x20);
+  let r = LZSS_N-LZSS_F;
+  const out = [];
+  let flags = 0, i = 0;
+  const n = src.length;
+  while(i < n){
+    flags >>= 1;
+    if((flags & 0x100) === 0){
+      if(i>=n) break;
+      flags = src[i] | 0xFF00;
+      i++;
+    }
+    if(flags & 1){
+      if(i>=n) break;
+      const c = src[i]; i++;
+      out.push(c);
+      textBuf[r]=c; r=(r+1)&(LZSS_N-1);
+    } else {
+      if(i+1>=n) break;
+      const b1=src[i], b2=src[i+1]; i+=2;
+      const pos = b1 | ((b2&0xF0)<<4);
+      const length = (b2&0x0F)+LZSS_THRESHOLD+1;
+      for(let k=0;k<length;k++){
+        const c = textBuf[(pos+k)&(LZSS_N-1)];
+        out.push(c);
+        textBuf[r]=c; r=(r+1)&(LZSS_N-1);
+      }
+    }
+    if(expectedSize && out.length >= expectedSize) break;
+  }
+  let result = new Uint8Array(out);
+  if(expectedSize !== undefined) result = result.slice(0, expectedSize);
+  return result;
+}
+
+// Encodes data as all-literal LZSS: groups of up to 8 bytes, each preceded
+// by a flag byte 0xFF (all bits = 1 = literal). Guaranteed-valid, larger
+// than a real compressed stream.
+function lzssCompressLiteral(data){
+  const out = [];
+  for(let i=0; i<data.length; i+=8){
+    out.push(0xFF);
+    for(let j=i; j<Math.min(i+8, data.length); j++) out.push(data[j]);
+  }
+  return new Uint8Array(out);
+}
+
+// Decode a PFIL-wrapped file. Returns {data, header(8 dwords), headerBytes(64)}.
+function decodePfil(bytes){
+  if(!(bytes[0]===0x50 && bytes[1]===0x46 && bytes[2]===0x49 && bytes[3]===0x4C)){
+    throw new Error('Not a PFIL file (missing magic)');
+  }
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const header = [];
+  for(let i=0;i<8;i++) header.push(dv.getUint32(i*4, true));
+  const headerTotal = header[1] >= 32 ? header[1] : 64;
+  const compType = header[3];
+  const uncompressedSize = header[4];
+  const payload = bytes.slice(headerTotal);
+  let data;
+  if(compType === 2) data = lzssDecompress(payload, uncompressedSize);
+  else data = payload.slice(0, uncompressedSize);
+  const headerBytes = bytes.slice(0, Math.max(64, headerTotal));
+  return {data, header, headerBytes};
+}
+
+// Build a PFIL file from decoded bytes, reusing original header bytes if
+// given (with uncompressed_size patched), or synthesizing a standard one.
+function encodePfil(data, origHeaderBytes){
+  let header;
+  if(origHeaderBytes && origHeaderBytes.length >= 64 && origHeaderBytes[0]===0x50
+     && origHeaderBytes[1]===0x46 && origHeaderBytes[2]===0x49 && origHeaderBytes[3]===0x4C){
+    header = origHeaderBytes.slice(0, 64);
+    const hdv = new DataView(header.buffer, header.byteOffset, header.byteLength);
+    hdv.setUint32(16, data.length, true);
+  }else{
+    header = new Uint8Array(64);
+    const hdv = new DataView(header.buffer);
+    header.set([0x50,0x46,0x49,0x4C], 0); // 'PFIL'
+    hdv.setUint32(4, 64, true);   // field1
+    hdv.setUint32(8, 1, true);    // version
+    hdv.setUint32(12, 2, true);   // comp_type = 2 (LZSS)
+    hdv.setUint32(16, data.length, true); // uncompressed_size
+  }
+  const payload = lzssCompressLiteral(data);
+  const out = new Uint8Array(header.length + payload.length);
+  out.set(header, 0);
+  out.set(payload, header.length);
+  return out;
+}
+
+function downloadBytes(bytes, filename){
+  const blob = new Blob([bytes], {type:'application/octet-stream'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ---------- .put file parsing (var:name="..."; format) ----------
+function parsePut(text){
+  const lines = text.split('\r\n');
+  const entries = [];
+  let i = 0;
+  while(i < lines.length){
+    const line = lines[i];
+    if(line === ''){ entries.push({type:'blank'}); i++; continue; }
+    if(line.startsWith('//')){ entries.push({type:'comment', text:line}); i++; continue; }
+    const m = line.match(/^(var:[A-Za-z0-9_]+)(\s*)=(.*)$/);
+    if(m){
+      const name = m[1].slice(4);
+      const pad = m[2];
+      const rest = m[3];
+      const rawLines = [rest];
+      let j = i;
+      while(!rawLines[rawLines.length-1].trimEnd().endsWith(';')){
+        j++;
+        if(j >= lines.length) break;
+        rawLines.push(lines[j]);
+      }
+      const valueParts = [];
+      for(const rl of rawLines){
+        const re = /"((?:[^"\\]|\\.)*)"/g;
+        let sm;
+        while((sm = re.exec(rl)) !== null) valueParts.push(sm[1]);
+      }
+      entries.push({type:'var', name, pad, value: valueParts.join(''), rawLines});
+      i = j+1;
+      continue;
+    }
+    entries.push({type:'raw', text:line});
+    i++;
+  }
+  return entries;
+}
+
+// Wrap a value string into multiple "..." segments matching the .put
+// format's line-length convention. Both sample files cap every line at
+// 104 chars (including the var:name=/quote prefix and trailing quote);
+// we target slightly under that. Breaks at spaces where possible; never
+// splits a \n or \" escape sequence, since this format uses C-style
+// adjacent string-literal concatenation across lines
+// (e.g. "foo "\r\n"bar"; == "foo bar";). Long single-line values (the
+// result of naive re-serialization) cause the game's .put parser to
+// crash, so any edited value is re-wrapped on export.
+const PUT_MAX_LINE_LEN = 100;
+
+function wrapPutValue(name, pad, value, maxLineLen){
+  const tokens = [];
+  for(let i=0;i<value.length;i++){
+    if(value[i] === '\\' && i+1 < value.length){
+      tokens.push(value[i]+value[i+1]);
+      i++;
+    } else {
+      tokens.push(value[i]);
+    }
+  }
+
+  const lines = [];
+  let current = '';
+  let prefixLen = `var:${name}${pad}="`.length;
+
+  for(const tok of tokens){
+    const wouldBeLen = prefixLen + current.length + tok.length + 1; // +1 for closing quote
+    if(wouldBeLen > maxLineLen && current.length > 0){
+      // break at the last space in the current line, or hard-break if none
+      const lastSpace = current.lastIndexOf(' ');
+      const breakAt = lastSpace > 0 ? lastSpace + 1 : current.length;
+      lines.push(current.slice(0, breakAt));
+      current = current.slice(breakAt);
+      prefixLen = 1; // continuation lines start with just `"`
+    }
+    current += tok;
+  }
+  lines.push(current);
+
+  const outLines = [];
+  if(lines.length === 1){
+    outLines.push(`var:${name}${pad}="${lines[0]}";`);
+  } else {
+    outLines.push(`var:${name}${pad}="${lines[0]}"`);
+    for(let i=1;i<lines.length-1;i++) outLines.push(`"${lines[i]}"`);
+    outLines.push(`"${lines[lines.length-1]}";`);
+  }
+  return outLines;
+}
+
+function serializePut(entries){
+  const outLines = [];
+  for(const e of entries){
+    if(e.type === 'blank') outLines.push('');
+    else if(e.type === 'comment') outLines.push(e.text);
+    else if(e.type === 'raw') outLines.push(e.text);
+    else if(e.type === 'var'){
+      const origParts = [];
+      for(const rl of e.rawLines){
+        const re = /"((?:[^"\\]|\\.)*)"/g;
+        let sm;
+        while((sm = re.exec(rl)) !== null) origParts.push(sm[1]);
+      }
+      const origValue = origParts.join('');
+      if(e.value === origValue){
+        outLines.push(`var:${e.name}${e.pad}=${e.rawLines[0]}`);
+        for(let k=1;k<e.rawLines.length;k++) outLines.push(e.rawLines[k]);
+      } else {
+        outLines.push(...wrapPutValue(e.name, e.pad, e.value, PUT_MAX_LINE_LEN));
+      }
+    }
+  }
+  return outLines.join('\r\n');
+}
+
+const FMT_INFO = {
+  f32:  { size:4, label:'f32',  read:(dv,o)=>dv.getFloat32(o,true),
+          write:(dv,o,v)=>dv.setFloat32(o,v,true), parse:s=>{const v=parseFloat(s); return isNaN(v)?null:v;} },
+  u8:   { size:1, label:'u8',   read:(dv,o)=>dv.getUint8(o),
+          write:(dv,o,v)=>dv.setUint8(o,v), parse:parseIntClamped(0,255) },
+  i8:   { size:1, label:'i8',   read:(dv,o)=>dv.getInt8(o),
+          write:(dv,o,v)=>dv.setInt8(o,v), parse:parseIntClamped(-128,127) },
+  u16:  { size:2, label:'u16',  read:(dv,o)=>dv.getUint16(o,true),
+          write:(dv,o,v)=>dv.setUint16(o,v,true), parse:parseIntClamped(0,65535) },
+  i16:  { size:2, label:'i16',  read:(dv,o)=>dv.getInt16(o,true),
+          write:(dv,o,v)=>dv.setInt16(o,v,true), parse:parseIntClamped(-32768,32767) },
+  u32:  { size:4, label:'u32',  read:(dv,o)=>dv.getUint32(o,true),
+          write:(dv,o,v)=>dv.setUint32(o,v,true), parse:parseIntClamped(0,4294967295) },
+  i32:  { size:4, label:'i32',  read:(dv,o)=>dv.getInt32(o,true),
+          write:(dv,o,v)=>dv.setInt32(o,v,true), parse:parseIntClamped(-2147483648,2147483647) },
+  u16be:{ size:2, label:'u16be',read:(dv,o)=>dv.getUint16(o,false),
+          write:(dv,o,v)=>dv.setUint16(o,v,false), parse:parseIntClamped(0,65535) },
+  u32be:{ size:4, label:'u32be',read:(dv,o)=>dv.getUint32(o,false),
+          write:(dv,o,v)=>dv.setUint32(o,v,false), parse:parseIntClamped(0,4294967295) },
+  cstr29:{ size:29, label:'str29', read:readCStr(29), write:writeCStr(29), parse:s=>s },
+  cstr16:{ size:16, label:'str16', read:readCStr(16), write:writeCStr(16), parse:s=>s },
+  cstr8: { size:8,  label:'str8',  read:readCStr(8),  write:writeCStr(8),  parse:s=>s },
+  cstr4: { size:4,  label:'str4',  read:readCStr(4),  write:writeCStr(4),  parse:s=>s },
+};
+
+function parseIntClamped(lo, hi){
+  return s => {
+    const v = parseInt(s, 10);
+    if(isNaN(v)) return null;
+    return Math.max(lo, Math.min(hi, Math.trunc(v)));
+  };
+}
+
+// returns a reader that pulls `len` bytes starting at offset `o` and decodes
+// as a null-terminated latin1 string (printable bytes shown, others as \xHH)
+function readCStr(len){
+  return (dv,o) => {
+    const bytes = new Uint8Array(dv.buffer, dv.byteOffset+o, len);
+    let end = bytes.indexOf(0);
+    if(end === -1) end = len;
+    let s = '';
+    for(let i=0;i<end;i++){
+      const b = bytes[i];
+      s += (b>=32 && b<127) ? String.fromCharCode(b) : `\\x${b.toString(16).padStart(2,'0')}`;
+    }
+    return s;
+  };
+}
+
+// writes a string into `len` bytes, null-padding (truncates if too long).
+// Does not interpret \xHH escapes on write -- plain ASCII only.
+function writeCStr(len){
+  return (dv,o,v) => {
+    const bytes = new Uint8Array(dv.buffer, dv.byteOffset+o, len);
+    bytes.fill(0);
+    for(let i=0; i<Math.min(v.length, len-1); i++){
+      bytes[i] = v.charCodeAt(i) & 0xFF;
+    }
+  };
+}
+
+const PRESETS = [
+  {
+    name: 'Stat array (1.0 / tag / value)',
+    desc: 'offset 13, stride 9: f32 1.0, u8 tag, f32 value — the table located so far',
+    startOffset: 13, recordSize: 9,
+    fields: [
+      { type:'f32', name:'const1' },
+      { type:'u8',  name:'tag' },
+      { type:'f32', name:'value' },
+    ]
+  },
+  {
+    name: 'objects.dat placements',
+    desc: 'offset 22, stride 79: 14000 placement slots — name/id strings + 19 trailing bytes',
+    startOffset: 22, recordSize: 79,
+    fields: [
+      { type:'u16', name:'pad0' },
+      { type:'cstr29', name:'name' },
+      { type:'cstr29', name:'id' },
+      { type:'u16', name:'t0' },
+      { type:'u16', name:'t1' },
+      { type:'u16', name:'t2' },
+      { type:'u16', name:'t3' },
+      { type:'u16', name:'t4' },
+      { type:'u16', name:'t5' },
+      { type:'u16', name:'t6' },
+      { type:'u8',  name:'t7' },
+      { type:'u16', name:'t8' },
+      { type:'u8',  name:'t9' },
+      { type:'u8',  name:'t10' },
+    ]
+  },
+  {
+    name: 'Raw bytes, 16-wide',
+    desc: 'hex/ascii style dump, 16 bytes per row, from offset 0',
+    startOffset: 0, recordSize: 16,
+    fields: Array.from({length:16}, (_,i)=>({type:'u8', name:'b'+i}))
+  },
+  {
+    name: 'u32 grid, 8-wide',
+    desc: '32-bit values, 8 per row, from offset 0',
+    startOffset: 0, recordSize: 32,
+    fields: Array.from({length:8}, (_,i)=>({type:'u32', name:'v'+i}))
+  },
+];
+
+let fileBytes = null;   // Uint8Array
+let dataView  = null;
+let parsed    = [];     // array of {offset, values:[...]}
+let sortCol   = null;
+let sortDir   = 1;
+let page = 0;
+const PAGE_SIZE = 200;
+
+// labels: Map<offset:number, string>
+let labels = new Map();
+let storageKey = null;
+let editingOffset = null;
+
+// edits: Map<byteOffset:number, originalByte:number> — sparse byte-level diff
+let editedBytes = new Map();
+let editingCell = null; // { rowOffset, fieldIndex } currently being edited as a value
+
+// original PFIL header bytes (64 bytes: PFIL header + sub-header), reused on export
+let origFileBytes = null;
+
+// ---------- multi-file slots (objects.dat / objdata.dat) ----------
+// Each slot holds its own decoded bytes, header, labels and edits so
+// switching the active file doesn't lose work on the other one.
+const slots = {
+  objects: { fileBytes:null, dataView:null, headerBytes:null, labels:new Map(), editedBytes:new Map(), storageKey:null, fileName:'objects.dat', loaded:false },
+  objdata: { fileBytes:null, dataView:null, headerBytes:null, labels:new Map(), editedBytes:new Map(), storageKey:null, fileName:'objdata.dat', loaded:false },
+};
+let activeSlot = 'objects';
+
+function saveActiveSlot(){
+  const s = slots[activeSlot];
+  s.fileBytes = fileBytes;
+  s.dataView = dataView;
+  s.headerBytes = origFileBytes;
+  s.labels = labels;
+  s.editedBytes = editedBytes;
+  s.storageKey = storageKey;
+}
+
+function loadSlotIntoGlobals(name){
+  const s = slots[name];
+  fileBytes = s.fileBytes;
+  dataView = s.dataView;
+  origFileBytes = s.headerBytes;
+  labels = s.labels;
+  editedBytes = s.editedBytes;
+  storageKey = s.storageKey;
+  editingOffset = null;
+  editingCell = null;
+}
+
+const el = id => document.getElementById(id);
+
+// ---------- field layout builder ----------
+function fieldRowHTML(field){
+  const opts = Object.keys(FMT_INFO).map(k =>
+    `<option value="${k}" ${field.type===k?'selected':''}>${k}</option>`).join('');
+  return `
+    <div class="fieldrow" data-field>
+      <input type="text" class="fname" value="${field.name}" placeholder="field name">
+      <select class="ftype">${opts}</select>
+      <button class="rm-btn" title="remove">&times;</button>
+    </div>`;
+}
+
+function renderFieldsList(fields){
+  const list = el('fieldsList');
+  list.innerHTML = fields.map(fieldRowHTML).join('');
+  [...list.children].forEach((row,i) => {
+    row.querySelector('.ftype').value = fields[i].type;
+    row.querySelector('.rm-btn').addEventListener('click', () => {
+      row.remove();
+      recompute();
+    });
+    row.querySelector('.fname').addEventListener('input', recompute);
+    row.querySelector('.ftype').addEventListener('change', recompute);
+  });
+}
+
+function getFieldsFromUI(){
+  return [...el('fieldsList').querySelectorAll('[data-field]')].map(row => ({
+    name: row.querySelector('.fname').value.trim() || '?',
+    type: row.querySelector('.ftype').value,
+  }));
+}
+
+el('addField').addEventListener('click', () => {
+  const list = el('fieldsList');
+  const div = document.createElement('div');
+  div.innerHTML = fieldRowHTML({type:'u8', name:'field'+list.children.length});
+  const row = div.firstElementChild;
+  list.appendChild(row);
+  row.querySelector('.rm-btn').addEventListener('click', () => { row.remove(); recompute(); });
+  row.querySelector('.fname').addEventListener('input', recompute);
+  row.querySelector('.ftype').addEventListener('change', recompute);
+  recompute();
+});
+
+// ---------- presets ----------
+function renderPresets(){
+  el('presets').innerHTML = PRESETS.map((p,i) => `
+    <div class="preset-btn" data-preset="${i}">
+      <span class="name">${p.name}</span>
+      <span class="desc">${p.desc}</span>
+    </div>`).join('');
+  [...el('presets').children].forEach((btn,i) => {
+    btn.addEventListener('click', () => applyPreset(PRESETS[i]));
+  });
+}
+function applyPreset(p){
+  el('startOffset').value = p.startOffset;
+  el('recordSize').value  = p.recordSize;
+  renderFieldsList(p.fields);
+  recompute();
+}
+
+// ---------- file loading (decodes PFIL .dat files in-browser) ----------
+function setupSlotLoader(slotName){
+  const input = el('fileInput-' + slotName);
+  const pick = el('filepick-' + slotName);
+  const textEl = el('filepickText-' + slotName);
+
+  input.addEventListener('change', e => {
+    const f = e.target.files[0];
+    if(!f) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const raw = new Uint8Array(ev.target.result);
+      const s = slots[slotName];
+      try{
+        const { data, headerBytes } = decodePfil(raw);
+        s.fileBytes = data;
+        s.dataView = new DataView(data.buffer, data.byteOffset, data.byteLength);
+        s.headerBytes = headerBytes;
+        textEl.textContent = `${f.name} — decoded ${data.length.toLocaleString()} bytes (from ${raw.length.toLocaleString()} compressed)`;
+      }catch(err){
+        // not a PFIL file -- treat as already-decoded raw bytes
+        s.fileBytes = raw;
+        s.dataView = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
+        s.headerBytes = null;
+        textEl.textContent = `${f.name} — ${raw.length.toLocaleString()} bytes (not PFIL-wrapped; loaded as-is)`;
+      }
+      s.fileName = f.name;
+      s.storageKey = 'objdata-labels::' + f.name + '::' + s.fileBytes.length;
+      s.labels = loadLabels(s.storageKey);
+      s.editedBytes = new Map();
+      s.loaded = true;
+      pick.classList.add('loaded');
+
+      if(slotName === activeSlot){
+        loadSlotIntoGlobals(activeSlot);
+        el('statsBox').style.display = 'flex';
+        el('statsBox').style.flexDirection = 'column';
+        el('statsBox').style.gap = '6px';
+        el('statSize').textContent = fileBytes.length.toLocaleString() + ' bytes';
+        renderLabelsPanel();
+        renderEditsPanel();
+        recompute();
+      }
+    };
+    reader.readAsArrayBuffer(f);
+  });
+
+  ['dragover','dragenter'].forEach(ev => pick.addEventListener(ev, e => { e.preventDefault(); }));
+  pick.addEventListener('drop', e => {
+    e.preventDefault();
+    const f = e.dataTransfer.files[0];
+    if(f){ input.files = e.dataTransfer.files; input.dispatchEvent(new Event('change')); }
+  });
+}
+setupSlotLoader('objects');
+setupSlotLoader('objdata');
+
+// ---------- active slot switching ----------
+el('activeSlot').addEventListener('change', () => {
+  saveActiveSlot();
+  activeSlot = el('activeSlot').value;
+  loadSlotIntoGlobals(activeSlot);
+
+  const s = slots[activeSlot];
+  if(s.loaded){
+    el('statsBox').style.display = 'flex';
+    el('statsBox').style.flexDirection = 'column';
+    el('statsBox').style.gap = '6px';
+    el('statSize').textContent = fileBytes.length.toLocaleString() + ' bytes';
+  }else{
+    el('statsBox').style.display = 'none';
+  }
+  renderLabelsPanel();
+  renderEditsPanel();
+
+  // switch to a sensible default preset for this file type
+  if(activeSlot === 'objects'){
+    applyPreset(PRESETS.find(p => p.name.startsWith('objects.dat')) || PRESETS[0]);
+  } else {
+    applyPreset(PRESETS.find(p => p.name.startsWith('Stat array')) || PRESETS[0]);
+  }
+});
+
+// ---------- core compute ----------
+function recompute(){
+  if(!fileBytes) return;
+  const startOffset = Math.max(0, parseInt(el('startOffset').value)||0);
+  const recordSize  = Math.max(1, parseInt(el('recordSize').value)||1);
+  let recordCount   = parseInt(el('recordCount').value)||0;
+  const fields = getFieldsFromUI();
+
+  const maxRecords = Math.floor((fileBytes.length - startOffset) / recordSize);
+  if(recordCount <= 0 || recordCount > maxRecords) recordCount = Math.max(0, maxRecords);
+
+  el('statRecords').textContent = maxRecords.toLocaleString();
+  el('statCoverage').textContent =
+    `${(recordCount*recordSize).toLocaleString()} (off ${startOffset}–${startOffset+recordCount*recordSize})`;
+
+  parsed = [];
+  for(let r=0; r<recordCount; r++){
+    const base = startOffset + r*recordSize;
+    let cursor = base;
+    const values = [];
+    const fieldOffsets = [];
+    for(const f of fields){
+      const info = FMT_INFO[f.type];
+      fieldOffsets.push(cursor);
+      if(cursor + info.size > fileBytes.length){ values.push(null); cursor += info.size; continue; }
+      values.push(info.read(dataView, cursor));
+      cursor += info.size;
+    }
+    parsed.push({ offset: base, values, fieldOffsets });
+  }
+
+  sortCol = null;
+  page = 0;
+  renderTable(fields);
+}
+
+// ---------- table rendering ----------
+function renderTable(fields){
+  const wrap = el('tableWrap');
+  if(!parsed.length){
+    wrap.innerHTML = `<div class="empty"><div class="big">::: :: : .. .</div><div>No records to display for this layout.</div></div>`;
+    el('footerLeft').textContent = fileBytes ? `${fileBytes.length.toLocaleString()} bytes loaded — 0 records` : 'No file loaded';
+    el('pageInfo').textContent = '—';
+    return;
+  }
+
+  const showIndex = el('showIndex').value === '1';
+  const filterText = el('search').value.trim().toLowerCase();
+
+  let rows = parsed;
+  if(filterText){
+    rows = rows.filter(row => {
+      if(String(row.offset).includes(filterText)) return true;
+      return row.values.some(v => v !== null && String(v).toLowerCase().includes(filterText));
+    });
+  }
+
+  if(sortCol !== null){
+    rows = rows.slice().sort((a,b) => {
+      const va = sortCol === -1 ? a.offset : a.values[sortCol];
+      const vb = sortCol === -1 ? b.offset : b.values[sortCol];
+      if(va === vb) return 0;
+      if(va === null) return 1;
+      if(vb === null) return -1;
+      return (va < vb ? -1 : 1) * sortDir;
+    });
+  }
+
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  if(page >= totalPages) page = totalPages - 1;
+  if(page < 0) page = 0;
+  const pageRows = rows.slice(page*PAGE_SIZE, (page+1)*PAGE_SIZE);
+
+  let html = '<table><thead><tr>';
+  if(showIndex){
+    const arrow = sortCol === -1 ? (sortDir===1?'\u25B2':'\u25BC') : '';
+    html += `<th data-col="-1">offset <span class="arrow">${arrow}</span></th>`;
+  }
+  fields.forEach((f,i) => {
+    const arrow = sortCol === i ? (sortDir===1?'\u25B2':'\u25BC') : '';
+    html += `<th data-col="${i}">${escapeHtml(f.name)} <span class="arrow" style="opacity:.5">${FMT_INFO[f.type].label}</span><span class="arrow">${arrow}</span></th>`;
+  });
+  html += '<th style="text-align:left">label</th>';
+  html += '</tr></thead><tbody>';
+
+  for(const row of pageRows){
+    const labelText = labels.get(row.offset) || '';
+    const isLabeled = labels.has(row.offset);
+    html += `<tr data-offset="${row.offset}" class="${isLabeled ? 'labeled' : ''}">`;
+    if(showIndex){
+      html += `<td class="offset">0x${row.offset.toString(16).padStart(6,'0')}</td>`;
+    }
+    row.values.forEach((v, fi) => {
+      const fieldOff = row.fieldOffsets[fi];
+      const isEditingThis = editingCell && editingCell.rowOffset === row.offset && editingCell.fieldIndex === fi;
+
+      if(v === null){ html += '<td class="zero">—</td>'; return; }
+
+      if(isEditingThis){
+        const raw = typeof v === 'string' ? v : (Number.isInteger(v) ? v.toString() : formatFloat(v));
+        html += `<td class="${typeof v==='string'?'strcell':''}"><input type="text" class="value-input" id="valueEditInput" value="${escapeHtml(raw)}" style="text-align:${typeof v==='string'?'left':'right'}"></td>`;
+        return;
+      }
+
+      let display, cls = '';
+      const isEdited = fieldHasEdit(fieldOff, FMT_INFO[fields[fi].type].size);
+      if(typeof v === 'string'){
+        display = escapeHtml(v) || '<span style="color:var(--line)">(empty)</span>';
+        cls = 'strcell';
+      } else if(typeof v === 'number' && Number.isInteger(v) === false){
+        display = formatFloat(v);
+      } else {
+        display = v.toString();
+      }
+      if(v === 0) cls += ' zero';
+      if(isEdited) cls += ' edited';
+      html += `<td class="editable ${cls}" data-edit-row="${row.offset}" data-edit-field="${fi}">${display}</td>`;
+    });
+
+    if(editingOffset === row.offset){
+      html += `<td class="label"><input type="text" class="label-input" id="labelEditInput" value="${escapeHtml(labelText)}" placeholder="name this offset..."></td>`;
+    } else if(isLabeled){
+      html += `<td class="label">${escapeHtml(labelText)} <button class="label-clear" data-clear="${row.offset}" title="remove label">&times;</button></td>`;
+    } else {
+      html += `<td class="label empty-label" data-add="${row.offset}">+ add label</td>`;
+    }
+
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+
+  // header click -> sort
+  wrap.querySelectorAll('th[data-col]').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = parseInt(th.dataset.col);
+      if(sortCol === col){ sortDir *= -1; } else { sortCol = col; sortDir = 1; }
+      page = 0;
+      editingOffset = null;
+      renderTable(fields);
+    });
+  });
+
+  // label cell click -> start editing
+  wrap.querySelectorAll('td.empty-label, td.label[data-add]').forEach(td => {
+    if(td.dataset.add === undefined) return;
+    td.addEventListener('click', () => {
+      editingOffset = parseInt(td.dataset.add);
+      renderTable(fields);
+    });
+  });
+
+  // clear label
+  wrap.querySelectorAll('.label-clear').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      setLabel(parseInt(btn.dataset.clear), '');
+      renderTable(fields);
+    });
+  });
+
+  // editing input
+  const editInput = el('labelEditInput');
+  if(editInput){
+    editInput.focus();
+    editInput.select();
+    const commit = () => {
+      setLabel(editingOffset, editInput.value);
+      editingOffset = null;
+      renderTable(fields);
+    };
+    editInput.addEventListener('keydown', e => {
+      if(e.key === 'Enter'){ commit(); }
+      else if(e.key === 'Escape'){ editingOffset = null; renderTable(fields); }
+    });
+    editInput.addEventListener('blur', commit);
+  }
+
+  // value cell click -> start editing
+  wrap.querySelectorAll('td.editable[data-edit-row]').forEach(td => {
+    td.addEventListener('click', () => {
+      editingCell = { rowOffset: parseInt(td.dataset.editRow), fieldIndex: parseInt(td.dataset.editField) };
+      editingOffset = null;
+      renderTable(fields);
+    });
+  });
+
+  // value editing input
+  const valueInput = el('valueEditInput');
+  if(valueInput){
+    valueInput.focus();
+    valueInput.select();
+    const commitValue = () => {
+      const row = parsed.find(r => r.offset === editingCell.rowOffset);
+      const fi = editingCell.fieldIndex;
+      const field = fields[fi];
+      const info = FMT_INFO[field.type];
+      const fieldOff = row.fieldOffsets[fi];
+      const parsedVal = info.parse(valueInput.value);
+      if(parsedVal !== null){
+        applyEdit(fieldOff, info, parsedVal);
+        // re-read values for this row from the (now-updated) bytes
+        let cursor = row.offset;
+        for(let k=0;k<fields.length;k++){
+          const fi2 = FMT_INFO[fields[k].type];
+          if(cursor + fi2.size <= fileBytes.length) row.values[k] = fi2.read(dataView, cursor);
+          cursor += fi2.size;
+        }
+      }
+      editingCell = null;
+      renderEditsPanel();
+      renderTable(fields);
+    };
+    valueInput.addEventListener('keydown', e => {
+      if(e.key === 'Enter'){ commitValue(); }
+      else if(e.key === 'Escape'){ editingCell = null; renderTable(fields); }
+    });
+    valueInput.addEventListener('blur', commitValue);
+  }
+
+  el('footerLeft').textContent =
+    `${fileBytes.length.toLocaleString()} bytes loaded — ${parsed.length.toLocaleString()} records` +
+    (filterText ? ` — ${rows.length.toLocaleString()} matching` : '');
+  el('pageInfo').textContent = `page ${page+1} / ${totalPages} (${rows.length.toLocaleString()} rows)`;
+  el('prevPage').disabled = page <= 0;
+  el('nextPage').disabled = page >= totalPages-1;
+}
+
+function formatFloat(v){
+  if(Object.is(v, -0)) v = 0;
+  if(!isFinite(v)) return String(v);
+  if(Math.abs(v) > 0 && (Math.abs(v) < 1e-4 || Math.abs(v) > 1e7)) return v.toExponential(3);
+  // trim trailing zeros but keep precision
+  let s = v.toFixed(4);
+  s = s.replace(/0+$/,'').replace(/\.$/,'.0');
+  if(s.endsWith('.')) s += '0';
+  return s;
+}
+
+function escapeHtml(s){
+  return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+
+// ---------- labels ----------
+function loadLabels(key){
+  const m = new Map();
+  try{
+    const raw = localStorage.getItem(key);
+    if(raw){
+      const obj = JSON.parse(raw);
+      for(const [off, text] of Object.entries(obj)) m.set(parseInt(off), text);
+    }
+  }catch(e){ /* ignore corrupt storage */ }
+  return m;
+}
+
+function saveLabels(){
+  if(!storageKey) return;
+  const obj = {};
+  for(const [off, text] of labels.entries()) obj[off] = text;
+  try{ localStorage.setItem(storageKey, JSON.stringify(obj)); }catch(e){ /* storage full / unavailable */ }
+}
+
+function setLabel(offset, text){
+  text = text.trim();
+  if(text){ labels.set(offset, text); }
+  else { labels.delete(offset); }
+  saveLabels();
+  renderLabelsPanel();
+}
+
+function renderLabelsPanel(){
+  const panel = el('labelsPanel');
+  const count = el('labelCount');
+  count.textContent = labels.size ? `(${labels.size})` : '';
+  if(labels.size === 0){
+    panel.innerHTML = '<div class="labels-empty">Click the label cell on any row to name that offset.</div>';
+    return;
+  }
+  const entries = [...labels.entries()].sort((a,b) => a[0]-b[0]);
+  panel.innerHTML = entries.map(([off,text]) => `
+    <div class="label-entry" data-jump="${off}">
+      <span class="loff">0x${off.toString(16).padStart(6,'0')}</span>
+      <span class="ltext">${escapeHtml(text)}</span>
+    </div>`).join('');
+  panel.querySelectorAll('.label-entry').forEach(node => {
+    node.addEventListener('click', () => jumpToOffset(parseInt(node.dataset.jump)));
+  });
+}
+
+function jumpToOffset(offset){
+  if(!parsed.length) return;
+  let idx = parsed.findIndex(r => r.offset === offset);
+  if(idx === -1){
+    // fall back to nearest record at/after this offset
+    idx = parsed.findIndex(r => r.offset >= offset);
+    if(idx === -1) idx = parsed.length - 1;
+  }
+  // account for current sort order
+  let rows = parsed;
+  const filterText = el('search').value.trim().toLowerCase();
+  if(filterText){
+    rows = rows.filter(row => {
+      if(String(row.offset).includes(filterText)) return true;
+      return row.values.some(v => v !== null && String(v).toLowerCase().includes(filterText));
+    });
+  }
+  if(sortCol !== null){
+    rows = rows.slice().sort((a,b) => {
+      const va = sortCol === -1 ? a.offset : a.values[sortCol];
+      const vb = sortCol === -1 ? b.offset : b.values[sortCol];
+      if(va === vb) return 0;
+      if(va === null) return 1;
+      if(vb === null) return -1;
+      return (va < vb ? -1 : 1) * sortDir;
+    });
+  }
+  const rowIdx = rows.findIndex(r => r.offset === offset);
+  if(rowIdx === -1) return;
+  page = Math.floor(rowIdx / PAGE_SIZE);
+  editingOffset = offset;
+  renderTable(getFieldsFromUI());
+  requestAnimationFrame(() => {
+    const target = el('tableWrap').querySelector(`tr[data-offset="${offset}"]`);
+    if(target) target.scrollIntoView({ block:'center' });
+  });
+}
+
+el('exportLabels').addEventListener('click', () => {
+  const obj = {};
+  for(const [off, text] of [...labels.entries()].sort((a,b)=>a[0]-b[0])) obj['0x'+off.toString(16)] = text;
+  const blob = new Blob([JSON.stringify(obj, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = (storageKey ? storageKey.split('::')[1].replace(/\.[^.]+$/,'') : 'objdata') + '.labels.json';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+el('importLabelsInput').addEventListener('change', e => {
+  const f = e.target.files[0];
+  if(!f) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try{
+      const obj = JSON.parse(ev.target.result);
+      for(const [key, text] of Object.entries(obj)){
+        const off = typeof key === 'string' && key.startsWith('0x') ? parseInt(key,16) : parseInt(key);
+        if(!isNaN(off) && text) labels.set(off, String(text));
+      }
+      saveLabels();
+      renderLabelsPanel();
+      renderTable(getFieldsFromUI());
+    }catch(err){
+      alert('Could not parse labels file: ' + err.message);
+    }
+  };
+  reader.readAsText(f);
+  e.target.value = '';
+});
+
+// ---------- byte-level edits ----------
+function applyEdit(byteOffset, info, value){
+  // snapshot original bytes for this field's byte range, if not already tracked
+  for(let i=0; i<info.size; i++){
+    const o = byteOffset + i;
+    if(!editedBytes.has(o)) editedBytes.set(o, fileBytes[o]);
+  }
+  info.write(dataView, byteOffset, value);
+  // if every byte in the field now matches its original snapshot, untrack it
+  let allSame = true;
+  for(let i=0; i<info.size; i++){
+    const o = byteOffset + i;
+    if(fileBytes[o] !== editedBytes.get(o)){ allSame = false; break; }
+  }
+  if(allSame){
+    for(let i=0; i<info.size; i++) editedBytes.delete(byteOffset+i);
+  }
+}
+
+function fieldHasEdit(byteOffset, size){
+  for(let i=0; i<size; i++) if(editedBytes.has(byteOffset+i)) return true;
+  return false;
+}
+
+function renderEditsPanel(){
+  const panel = el('editsPanel');
+  const count = el('editCount');
+  count.textContent = editedBytes.size ? `(${editedBytes.size} bytes)` : '';
+  if(editedBytes.size === 0){
+    panel.innerHTML = '<div class="labels-empty">Click a value cell (not name/id strings) to edit it in place.</div>';
+    return;
+  }
+  // group contiguous edited byte ranges for a compact summary
+  const offsets = [...editedBytes.keys()].sort((a,b)=>a-b);
+  const ranges = [];
+  for(const o of offsets){
+    const last = ranges[ranges.length-1];
+    if(last && o === last.end+1){ last.end = o; } else { ranges.push({start:o, end:o}); }
+  }
+  panel.innerHTML = ranges.map(r => {
+    const label = r.start===r.end ? `0x${r.start.toString(16).padStart(6,'0')}` :
+      `0x${r.start.toString(16).padStart(6,'0')}\u20130x${r.end.toString(16).padStart(6,'0')}`;
+    return `<div class="label-entry" data-jump="${r.start}"><span class="loff">${label}</span><span class="lval">edited</span></div>`;
+  }).join('');
+  panel.querySelectorAll('.label-entry').forEach(node => {
+    node.addEventListener('click', () => jumpToOffset(parseInt(node.dataset.jump)));
+  });
+}
+
+el('revertAllEdits').addEventListener('click', () => {
+  if(editedBytes.size === 0) return;
+  if(!confirm(`Revert all ${editedBytes.size} edited byte(s) to their original values?`)) return;
+  for(const [o, origByte] of editedBytes.entries()) fileBytes[o] = origByte;
+  editedBytes.clear();
+  renderEditsPanel();
+  recompute();
+});
+
+// ---------- export recompressed .dat ----------
+el('exportDat').addEventListener('click', () => {
+  if(!fileBytes){ alert('Load a decoded file first.'); return; }
+  const out = encodePfil(fileBytes, origFileBytes);
+  const baseName = slots[activeSlot].fileName.replace(/\.[^.]+$/,'');
+  downloadBytes(out, baseName + '.edited.dat');
+});
+
+
+['startOffset','recordSize','recordCount','showIndex'].forEach(id =>
+  el(id).addEventListener('input', recompute));
+el('search').addEventListener('input', () => { page=0; renderTable(getFieldsFromUI()); });
+el('prevPage').addEventListener('click', () => { page--; renderTable(getFieldsFromUI()); });
+el('nextPage').addEventListener('click', () => { page++; renderTable(getFieldsFromUI()); });
+
+// init
+renderPresets();
+renderFieldsList(PRESETS[0].fields);
+el('startOffset').value = PRESETS[0].startOffset;
+el('recordSize').value  = PRESETS[0].recordSize;
+renderEditsPanel();
+
+// ====================================================================
+// Briefing / text .put editor
+// ====================================================================
+const putSlots = {
+  briefing: { entries:null, headerBytes:null, fileName:'briefing.put', edited:new Set(), loaded:false },
+  text:     { entries:null, headerBytes:null, fileName:'text.put',     edited:new Set(), loaded:false },
+};
+
+function setupPutLoader(slotName){
+  const input = el(slotName + 'FileInput');
+  const pick  = el(slotName + 'Filepick');
+  const textEl = el(slotName + 'FilepickText');
+
+  input.addEventListener('change', e => {
+    const f = e.target.files[0];
+    if(!f) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const raw = new Uint8Array(ev.target.result);
+      const s = putSlots[slotName];
+      let decoded, headerBytes;
+      try{
+        const r = decodePfil(raw);
+        decoded = r.data;
+        headerBytes = r.headerBytes;
+        textEl.textContent = `${f.name} — decoded ${decoded.length.toLocaleString()} bytes (from ${raw.length.toLocaleString()} compressed)`;
+      }catch(err){
+        decoded = raw;
+        headerBytes = null;
+        textEl.textContent = `${f.name} — ${raw.length.toLocaleString()} bytes (not PFIL-wrapped; loaded as-is)`;
+      }
+      const text = new TextDecoder('latin1').decode(decoded);
+      s.entries = parsePut(text);
+      s.headerBytes = headerBytes;
+      s.fileName = f.name;
+      s.edited = new Set();
+      s.loaded = true;
+      pick.classList.add('loaded');
+      renderBriefingMain();
+      renderBriefingEditCount();
+    };
+    reader.readAsArrayBuffer(f);
+  });
+
+  ['dragover','dragenter'].forEach(ev => pick.addEventListener(ev, e => { e.preventDefault(); }));
+  pick.addEventListener('drop', e => {
+    e.preventDefault();
+    const f = e.dataTransfer.files[0];
+    if(f){ input.files = e.dataTransfer.files; input.dispatchEvent(new Event('change')); }
+  });
+}
+setupPutLoader('briefing');
+setupPutLoader('text');
+
+// converts the in-file escaped form (literal backslash-n) to real newlines
+// for display in a textarea, and back again on save.
+function putValueToDisplay(v){
+  return v.replace(/\\n/g, '\n').replace(/\\"/g, '"');
+}
+function displayToPutValue(v){
+  return v.replace(/"/g, '\\"').replace(/\n/g, '\\n');
+}
+
+function renderBriefingMain(){
+  const main = el('briefingMain');
+  const blocks = [];
+
+  for(const slotName of ['briefing','text']){
+    const s = putSlots[slotName];
+    if(!s.loaded) continue;
+    let html = `<div class="briefing-file-block" data-slot="${slotName}">
+      <h2>${s.fileName} <span class="fname">${s.entries.filter(e=>e.type==='var').length} fields</span></h2>`;
+    s.entries.forEach((e, idx) => {
+      if(e.type === 'comment'){
+        html += `<div class="comment-line">${escapeHtml(e.text)}</div>`;
+      } else if(e.type === 'var'){
+        const display = putValueToDisplay(e.value);
+        const isEdited = s.edited.has(idx);
+        const rows = Math.max(1, Math.min(10, display.split('\n').length + (display.length > 80 ? Math.ceil(display.length/80) : 0)));
+        html += `<div class="varblock">
+          <div class="vname">${escapeHtml(e.name)} ${isEdited ? '<span class="vmeta">(edited)</span>' : ''}</div>
+          <textarea data-slot="${slotName}" data-idx="${idx}" rows="${rows}" class="${isEdited?'edited':''}">${escapeHtml(display)}</textarea>
+        </div>`;
+      }
+    });
+    html += '</div>';
+    blocks.push(html);
+  }
+
+  if(blocks.length === 0){
+    main.innerHTML = `<div class="briefing-empty">
+      <div class="big">::: :: : .. .</div>
+      <div>Load briefing.put and/or text.put to edit their<br><code>var:name="...";</code> entries as a form.</div>
+    </div>`;
+    return;
+  }
+
+  main.innerHTML = blocks.join('');
+
+  main.querySelectorAll('textarea[data-slot]').forEach(ta => {
+    ta.addEventListener('input', () => {
+      const slotName = ta.dataset.slot;
+      const idx = parseInt(ta.dataset.idx);
+      const s = putSlots[slotName];
+      const entry = s.entries[idx];
+      const newValue = displayToPutValue(ta.value);
+      if(newValue !== entry.value){
+        entry.value = newValue;
+        s.edited.add(idx);
+        ta.classList.add('edited');
+      } else {
+        s.edited.delete(idx);
+        ta.classList.remove('edited');
+      }
+      renderBriefingEditCount();
+    });
+  });
+}
+
+function renderBriefingEditCount(){
+  let total = 0;
+  for(const s of Object.values(putSlots)) total += s.edited.size;
+  el('briefingEditCount').textContent = total ? `(${total})` : '';
+}
+
+el('revertBriefingEdits').addEventListener('click', () => {
+  let total = 0;
+  for(const s of Object.values(putSlots)) total += s.edited.size;
+  if(total === 0) return;
+  if(!confirm(`Revert all ${total} edited field(s)?`)) return;
+  for(const [slotName, s] of Object.entries(putSlots)){
+    if(!s.loaded) continue;
+    for(const idx of s.edited){
+      // re-derive original value from rawLines (unedited concatenation)
+      const e = s.entries[idx];
+      const origParts = [];
+      for(const rl of e.rawLines){
+        const re = /"((?:[^"\\]|\\.)*)"/g;
+        let sm;
+        while((sm = re.exec(rl)) !== null) origParts.push(sm[1]);
+      }
+      e.value = origParts.join('');
+    }
+    s.edited.clear();
+  }
+  renderBriefingMain();
+  renderBriefingEditCount();
+});
+
+function exportPut(slotName){
+  const s = putSlots[slotName];
+  if(!s.loaded){ alert(`Load ${s.fileName} first.`); return; }
+  const text = serializePut(s.entries);
+  const bytes = new Uint8Array(text.length);
+  for(let i=0;i<text.length;i++) bytes[i] = text.charCodeAt(i) & 0xFF;
+  const out = encodePfil(bytes, s.headerBytes);
+  downloadBytes(out, s.fileName.replace(/\.[^.]+$/,'') + '.edited.put');
+}
+el('exportBriefingPut').addEventListener('click', () => exportPut('briefing'));
+el('exportTextPut').addEventListener('click', () => exportPut('text'));
+
+
+</script>
+
+</body>
+</html>
