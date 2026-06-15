@@ -1,0 +1,11 @@
+These are all my notes from the disassembly work as I go along. Not all will be useful, many are just notes to myself and addresses I find things.
+
+Important files:
+SYSTEM\DATA_MP\DEFAULTS\objdef.dau - Unit stats and definitions 
+SYSTEM\TEXT\US\objnames.put - Unit names?
+MAPS\MAPNAME\DATA\objdata.dat - Per level unit overrides?
+
+
+Addresses:
+Against_Rome.exe+B85C48 - Chieftan Current HP on Campaign 1 Map
+00C792FC - Chieftan Max HP Clamp Value (Gets loaded at Game Initialization) 
